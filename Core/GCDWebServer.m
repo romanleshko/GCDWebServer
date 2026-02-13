@@ -132,6 +132,28 @@ static void _ExecuteMainThreadRunLoopSources() {
 
 #endif
 
+static NSString* _CaseInsensitiveMatchingFilePath(NSString* filePath) {
+  NSString* directoryPath = [filePath stringByDeletingLastPathComponent];
+  NSString* filename = [filePath lastPathComponent];
+  if (filename.length == 0) {
+    return nil;
+  }
+
+  NSFileManager* fileManager = [NSFileManager defaultManager];
+  NSArray<NSString*>* entries = [fileManager contentsOfDirectoryAtPath:directoryPath error:NULL];
+  for (NSString* entry in entries) {
+    if ([entry caseInsensitiveCompare:filename] == NSOrderedSame) {
+      NSString* candidatePath = [directoryPath stringByAppendingPathComponent:entry];
+      NSString* candidateType = [[fileManager attributesOfItemAtPath:candidatePath error:NULL] fileType];
+      if ([candidateType isEqualToString:NSFileTypeRegular]) {
+        return candidatePath;
+      }
+    }
+  }
+
+  return nil;
+}
+
 @implementation GCDWebServerHandler
 
 - (instancetype)initWithMatchBlock:(GCDWebServerMatchBlock _Nonnull)matchBlock asyncProcessBlock:(GCDWebServerAsyncProcessBlock _Nonnull)processBlock {
@@ -1034,6 +1056,13 @@ static inline NSString* _EncodeBase64(NSString* string) {
           GCDWebServerResponse* response = nil;
           NSString* filePath = [directoryPath stringByAppendingPathComponent:GCDWebServerNormalizePath([request.path substringFromIndex:basePath.length])];
           NSString* fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
+          if (!fileType && ![request.path hasSuffix:@"/"]) {
+            NSString* fallbackPath = _CaseInsensitiveMatchingFilePath(filePath);
+            if (fallbackPath) {
+              filePath = fallbackPath;
+              fileType = NSFileTypeRegular;
+            }
+          }
           if (fileType) {
             if ([fileType isEqualToString:NSFileTypeDirectory]) {
               if (indexFilename) {
