@@ -132,26 +132,33 @@ static void _ExecuteMainThreadRunLoopSources() {
 
 #endif
 
-static NSString* _CaseInsensitiveMatchingFilePath(NSString* filePath) {
-  NSString* directoryPath = [filePath stringByDeletingLastPathComponent];
-  NSString* filename = [filePath lastPathComponent];
-  if (filename.length == 0) {
-    return nil;
-  }
-
+static NSString* _ResolveCaseInsensitivePath(NSString* directoryPath, NSString* relativePath) {
   NSFileManager* fileManager = [NSFileManager defaultManager];
-  NSArray<NSString*>* entries = [fileManager contentsOfDirectoryAtPath:directoryPath error:NULL];
-  for (NSString* entry in entries) {
-    if ([entry caseInsensitiveCompare:filename] == NSOrderedSame) {
-      NSString* candidatePath = [directoryPath stringByAppendingPathComponent:entry];
-      NSString* candidateType = [[fileManager attributesOfItemAtPath:candidatePath error:NULL] fileType];
-      if ([candidateType isEqualToString:NSFileTypeRegular]) {
-        return candidatePath;
+  NSArray<NSString*>* pathComponents = [relativePath pathComponents];
+  NSString* resolvedPath = directoryPath;
+  for (NSString* pathComponent in pathComponents) {
+    NSString* candidatePath = [resolvedPath stringByAppendingPathComponent:pathComponent];
+    NSString* candidateType = [[fileManager attributesOfItemAtPath:candidatePath error:NULL] fileType];
+    if (candidateType) {
+      resolvedPath = candidatePath;
+      continue;
+    }
+
+    NSArray<NSString*>* entries = [fileManager contentsOfDirectoryAtPath:resolvedPath error:NULL];
+    NSString* matchedPath = nil;
+    for (NSString* entry in entries) {
+      if ([entry caseInsensitiveCompare:pathComponent] == NSOrderedSame) {
+        matchedPath = [resolvedPath stringByAppendingPathComponent:entry];
+        break;
       }
     }
+    if (!matchedPath) {
+      return nil;
+    }
+    resolvedPath = matchedPath;
   }
 
-  return nil;
+  return resolvedPath;
 }
 
 @implementation GCDWebServerHandler
@@ -1054,13 +1061,14 @@ static inline NSString* _EncodeBase64(NSString* string) {
     }
         processBlock:^GCDWebServerResponse*(GCDWebServerRequest* request) {
           GCDWebServerResponse* response = nil;
-          NSString* filePath = [directoryPath stringByAppendingPathComponent:GCDWebServerNormalizePath([request.path substringFromIndex:basePath.length])];
+          NSString* relativePath = GCDWebServerNormalizePath([request.path substringFromIndex:basePath.length]);
+          NSString* filePath = [directoryPath stringByAppendingPathComponent:relativePath];
           NSString* fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
-          if (!fileType && ![request.path hasSuffix:@"/"]) {
-            NSString* fallbackPath = _CaseInsensitiveMatchingFilePath(filePath);
+          if (!fileType) {
+            NSString* fallbackPath = _ResolveCaseInsensitivePath(directoryPath, relativePath);
             if (fallbackPath) {
               filePath = fallbackPath;
-              fileType = NSFileTypeRegular;
+              fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
             }
           }
           if (fileType) {
