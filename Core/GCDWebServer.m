@@ -161,6 +161,23 @@ static NSString* _ResolveCaseInsensitivePath(NSString* directoryPath, NSString* 
   return resolvedPath;
 }
 
+static NSString* _PathWithFallbackExtension(NSString* relativePath) {
+  NSString* extension = [[relativePath pathExtension] lowercaseString];
+  NSString* fallbackExtension = nil;
+  if ([extension isEqualToString:@"webm"]) {
+    fallbackExtension = @"mp4";
+  } else if ([extension isEqualToString:@"ogg"]) {
+    fallbackExtension = @"m4a";
+  } else if ([extension isEqualToString:@"rpgmvo"]) {
+    fallbackExtension = @"rpgmvm";
+  }
+  if (!fallbackExtension) {
+    return nil;
+  }
+
+  return [[relativePath stringByDeletingPathExtension] stringByAppendingPathExtension:fallbackExtension];
+}
+
 @implementation GCDWebServerHandler
 
 - (instancetype)initWithMatchBlock:(GCDWebServerMatchBlock _Nonnull)matchBlock asyncProcessBlock:(GCDWebServerAsyncProcessBlock _Nonnull)processBlock {
@@ -1069,6 +1086,20 @@ static inline NSString* _EncodeBase64(NSString* string) {
             if (fallbackPath) {
               filePath = fallbackPath;
               fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
+            }
+          }
+          if (!fileType && ![request.path hasSuffix:@"/"]) {
+            NSString* fallbackRelativePath = _PathWithFallbackExtension(relativePath);
+            if (fallbackRelativePath) {
+              filePath = [directoryPath stringByAppendingPathComponent:fallbackRelativePath];
+              fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
+              if (!fileType) {
+                NSString* fallbackPath = _ResolveCaseInsensitivePath(directoryPath, fallbackRelativePath);
+                if (fallbackPath) {
+                  filePath = fallbackPath;
+                  fileType = [[[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:NULL] fileType];
+                }
+              }
             }
           }
           if (fileType) {
